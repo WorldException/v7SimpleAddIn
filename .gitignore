@@ -1,0 +1,5 @@
+*.dcu
+*.pas.~*~
+*.tmp
+*.lck
+*.mlg

@@ -1,108 +1,3 @@
-{
-this component let you execute a dos program (exe, com or batch file) and catch
-the ouput in order to put it in a memo or in a listbox, ...
-  you can also send inputs.
-  the cool thing of this component is that you do not need to wait the end of
-the program to get back the output. it comes line by line.
-
-
- *********************************************************************
- ** maxime_collomb@yahoo.fr                                         **
- **                                                                 **
- **   for this component, i just translated C code                  **
- ** from Community.borland.com                                      **
- ** (http://www.vmlinux.org/jakov/community.borland.com/10387.html) **
- **                                                                 **
- **   if you have a good idea of improvement, please                **
- ** let me know (maxime_collomb@yahoo.fr).                          **
- **   if you improve this component, please send me a copy          **
- ** so i can put it on www.torry.net.                               **
- *********************************************************************
-
- History :
- ---------
-
- 13-06-2003 : version 2.?
-              - Added exception when executing with empty CommandLine
-              - Added IsRunning property to check if a command is currently
-                running
- 18-05-2001 : version 2.0
-              - Now, catching the beginning of a line is allowed (usefull if the
-                prog ask for an entry) => the method OnNewLine is modified
-              - Now can send inputs
-              - Add a couple of FreeMem for sa & sd [thanks Gary H. Blaikie]
- 07-05-2001 : version 1.2
-              - Sleep(1) is added to give others processes a chance
-                [thanks Hans-Georg Rickers]
-              - the loop that catch the outputs has been re-writen by
-                Hans-Georg Rickers => no more broken lines
- 30-04-2001 : version 1.1
-              - function IsWinNT() is changed to
-                (Win32Platform = VER_PLATFORM_WIN32_NT) [thanks Marc Scheuner]
-              - empty lines appear in the redirected output
-              - property OutputLines is added to redirect output directly to a
-                memo, richedit, listbox, ... [thanks Jean-Fabien Connault]
-              - a timer is added to offer the possibility of ending the process
-                after XXX sec. after the beginning or YYY sec after the last
-                output [thanks Jean-Fabien Connault]
-              - managing process priorities flags in the CreateProcess
-                thing [thanks Jean-Fabien Connault]
- 20-04-2001 : version 1.0 on www.torry.net
- *******************************************************************
- How to use it :
- ---------------
-  - just put the line of command in the property 'CommandLine'
-  - execute the process with the method 'Execute'
-  - if you want to stop the process before it has ended, use the method 'Stop'
-  - if you want the process to stop by itself after XXX sec of activity,
-    use the property 'MaxTimeAfterBeginning'
-  - if you want the process to stop after XXX sec without an output,
-    use the property 'MaxTimeAfterLastOutput'
-  - to directly redirect outputs to a memo or a richedit, ...
-    use the property 'OutputLines'
-    (DosCommand1.OutputLnes := Memo1.Lines;)
-  - you can access all the outputs of the last command with the property 'Lines'
-  - you can change the priority of the process with the property 'Priority'
-    value of Priority must be in [HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
-    NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS]
-  - you can have an event for each new line and for the end of the process
-    with the events 'procedure OnNewLine(Sender: TObject; NewLine: string;
-    OutputType: TOutputType);' and 'procedure OnTerminated(Sender: TObject);'
-  - you can send inputs to the dos process with 'SendLine(Value: string;
-    Eol: Boolean);'. Eol is here to determine if the program have to add a
-    CR/LF at the end of the string.
- *******************************************************************
- How to call a dos function (win 9x/Me) :
- ----------------------------------------
-
- Example : Make a dir :
- ----------------------
-  - if you want to get the result of a 'c:\dir /o:gen /l c:\windows\*.txt'
-    for example, you need to make a batch file
-    --the batch file : c:\mydir.bat
-        @echo off
-        dir /o:gen /l %1
-        rem eof
-    --in your code
-        DosCommand.CommandLine := 'c:\mydir.bat c:\windows\*.txt';
-        DosCommand.Execute;
-
-  Example : Format a disk (win 9x/Me) :
-  -------------------------
-  --a batch file : c:\myformat.bat
-      @echo off
-      format %1
-      rem eof
-  --in your code
-      var diskname: string;
-      --
-      DosCommand1.CommandLine := 'c:\myformat.bat a:';
-      DosCommand1.Execute; //launch format process
-      DosCommand1.SendLine('', True); //equivalent to press enter key
-      DiskName := 'test';
-      DosCommand1.SendLine(DiskName, True); //enter the name of the volume
- *******************************************************************}
-
 unit DosCommand;
 
 interface
@@ -136,6 +31,7 @@ type
   end;
 
   TNewLineEvent = procedure(Sender: TObject; NewLine: string; OutputType: TOutputType) of object;
+  TNewErrorEvent = procedure(Sender: TObject; Message: string) of object;
 
   TDosThread = class(TThread) //the thread that is waiting for outputs through the pipe
   private
@@ -148,11 +44,14 @@ type
     FMaxTimeAfterBeginning: Integer;
     FMaxTimeAfterLastOutput: Integer;
     FOnNewLine: TNewLineEvent;
+    FOnNewError: TNewErrorEvent;
     FOnTerminated: TNotifyEvent;
     FCreatePipeError: TCreatePipeError;
     FCreateProcessError: TCreateProcessError;
     FPriority: Integer;
-    inputPipeRead, outputPipeWrite, outputPipeRead, inputPipeWrite: THandle; //pipe handles
+    inputPipeRead, inputPipeWrite: THandle; // stdin pipe handles
+    outputPipeRead, outputPipeWrite: THandle; // stdout pipe handles
+    errorPipeRead, errorPipeWrite: THandle; // stderr pipe handles
     procedure FExecute;
     procedure WriteToStdIn();
   protected
@@ -162,7 +61,7 @@ type
     InputLines: TstringList;
     constructor Create(AOwner: TObject; Cl: string; L: TStringList;
       Ol: TStrings; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
-      Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+      One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
   end;
 
   TDosCommand = class(TComponent) //the component to put on a form
@@ -173,6 +72,7 @@ type
     FOutputLines: TStrings;
     FInputToOutput: Boolean;
     FOnNewLine: TNewLineEvent;
+    FOnNewError: TNewErrorEvent;
     FOnTerminated: TNotifyEvent;
     FThread: TDosThread;
     FTimer: TProcessTimer;
@@ -181,11 +81,9 @@ type
     FPriority: Integer; //[HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
                         // NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS]
 
-
     procedure SetOutputLines(Value: TStrings);
     function GetIsRunning: boolean; // MK: 20030613
   protected
-    { Déclarations protégées }
   public
     show_window: boolean;
     constructor Create(AOwner: TComponent); override;
@@ -204,6 +102,8 @@ type
       //command to execute
     property OnNewLine: TNewLineEvent read FOnNewLine write FOnNewLine;
       //event for each new line that is received through the pipe
+    property OnNewError: TNewErrorEvent read FOnNewError write FOnNewError;
+      //event for each error line that is received through the pipe
     property OnTerminated: TNotifyEvent read FOnTerminated write FOnTerminated;
       //event for the end of the process (normally, time out or by user (DosCommand.Stop;))
     property InputToOutput: Boolean read FInputToOutput write FInputToOutput;
@@ -269,23 +169,27 @@ end;
 //------------------------------------------------------------------------------
 procedure TDosThread.FExecute;
 var
-  pBuf: TCharBuffer; //i/o buffer
+  pBuf: TCharBuffer; // stdout buffer
+  errorBuf: TCharBuffer; // stderr buffer
   iBufSize: Cardinal;
   app_spawn: PChar;
   si: TStartupInfo;
   sa: PSECURITYATTRIBUTES; //security information for pipes
   sd: PSECURITY_DESCRIPTOR;
   pi: TProcessInformation;
-  Exit_Code: LongWord; //process exit code
+  Exit_Code: DWORD; //process exit code
   bread: DWORD; //bytes read
   readed: DWORD;
-  avail: LongWord; //bytes available
-  Str, Last: string;
+  errorReaded: DWORD;
+  avail: DWORD; //bytes available in stdout
+  errorAvail: DWORD; //bytes available in stderr
+  Str, Last, ErrorStr: string;
   I: LongWord;
   LineBeginned, created: Boolean;
 begin //FExecute
 
   GetMem(sa, sizeof(SECURITY_ATTRIBUTES));
+  sd := nil;
   if (Win32Platform = VER_PLATFORM_WIN32_NT) then
   begin //initialize security descriptor (Windows NT)
     GetMem(sd, sizeof(SECURITY_DESCRIPTOR));
@@ -295,35 +199,50 @@ begin //FExecute
   end
   else begin
     sa.lpSecurityDescriptor := nil;
-    sd := nil;
   end;
   sa.nLength := sizeof(SECURITY_ATTRIBUTES);
   sa.bInheritHandle := true; //allow inheritable handles
 
-  if not (CreatePipe(inputPipeRead, inputPipeWrite, sa, 0)) then //create stdin pipe
+  // Create stdin pipe
+  if not CreatePipe(inputPipeRead, inputPipeWrite, sa, 0) then
   begin
-    raise FCreatePipeError;
-    Exit;
+    FreeMem(sd);
+    FreeMem(sa);
+    raise FCreatePipeError.Create('Cannot create stdin pipe');
   end;
 
-  if not (CreatePipe(outputPipeRead, outputPipeWrite, sa, 0)) then //create stdout pipe
+  // Create stdout pipe
+  if not CreatePipe(outputPipeRead, outputPipeWrite, sa, 0) then
   begin
-    raise FCreateProcessError;
     CloseHandle(inputPipeRead);
     CloseHandle(inputPipeWrite);
-    Exit;
+    FreeMem(sd);
+    FreeMem(sa);
+    raise FCreatePipeError.Create('Cannot create stdout pipe');
   end;
+
+  // Create stderr pipe
+  if not CreatePipe(errorPipeRead, errorPipeWrite, sa, 0) then
+  begin
+    CloseHandle(outputPipeRead);
+    CloseHandle(outputPipeWrite);
+    CloseHandle(inputPipeRead);
+    CloseHandle(inputPipeWrite);
+    FreeMem(sd);
+    FreeMem(sa);
+    raise FCreatePipeError.Create('Cannot create stderr pipe');
+  end;
+
   // START PROCESS
   ZeroMemory(@si, SizeOf(TStartupInfo));
   si.cb := SizeOf(TStartupInfo);
-  //GetStartupInfo(si);
   si.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
   if show_window then
     si.wShowWindow := SW_SHOW
   else
     si.wShowWindow := SW_HIDE;
   si.hStdOutput := outputPipeWrite;
-  si.hStdError := outputPipeWrite;
+  si.hStdError := errorPipeWrite; // Separate pipe for stderr
   si.hStdInput := inputPipeRead;
 
   app_spawn := PChar(FCommandLine);
@@ -335,7 +254,7 @@ begin //FExecute
     nil,  // proc security attre
     nil,  // primary thread secur attr
     TRUE, // handles inherited
-    0, // CREATE_NEW_CONSOLE or FPriority, CREATE_NO_WINDOW EXTENDED_STARTUPINFO_PRESENT// flags
+    FPriority, // use priority flag
     nil,  // use parent env
     nil,  // use parent cur directory
     si,   // pointer startup info
@@ -343,78 +262,135 @@ begin //FExecute
   );
   if not created then
   begin
-    FCreateProcessError := TCreateProcessError.Create(string(app_spawn) + ' doesn''t exist.');
-    raise FCreateProcessError;
-    CloseHandle(inputPipeRead);
-    CloseHandle(inputPipeWrite);
+    CloseHandle(errorPipeRead);
+    CloseHandle(errorPipeWrite);
     CloseHandle(outputPipeRead);
     CloseHandle(outputPipeWrite);
-    Exit;
+    CloseHandle(inputPipeRead);
+    CloseHandle(inputPipeWrite);
+    FreeMem(sd);
+    FreeMem(sa);
+    raise TCreateProcessError.Create(string(app_spawn) + ' doesn''t exist or cannot be started.');
   end;
 
   Last := ''; // Buffer to save last output without finished with CRLF
+  ErrorStr := ''; // Buffer for stderr
   Str := '';
   LineBeginned := False;
   iBufSize := MaxBufSize;
-  //pBuf := AllocMem(iBufSize); // Reserve and init Buffer
   FillChar(pBuf, iBufSize, #0);
+  FillChar(errorBuf, iBufSize, #0);
   try
     repeat //main program loop
       GetExitCodeProcess(pi.hProcess, Exit_Code); //while the process is running
 
+      // Read stdout
       PeekNamedPipe(outputPipeRead, nil, 0, @bread, @avail, nil);
-      //check to see if there is any data to read from stdout
-      if (avail > 0) then begin
+      if avail > 0 then
+      begin
         Str := Last; //take the begin of the line (if exists)
         repeat
           FillChar(pBuf, iBufSize, #0); //empty the buffer
           ReadFile(outputPipeRead, pBuf[0], MaxBufSize, readed, nil); //read the stdout pipe
-          i := 0;
-          while ((i < readed) and not (Terminated)) do begin
-            case pBuf[i] of
-              #0: Inc(i);
+          I := 0;
+          while (I < readed) and not Terminated do
+          begin
+            case pBuf[I] of
+              #0: Inc(I);
               #10:
                 begin
-                  Inc(i);
-                  FTimer.NewOutput; //a new ouput has been caught
-                  FLines.add(Str); //add the line
+                  Inc(I);
+                  FTimer.NewOutput; //a new output has been caught
+                  FLines.Add(Str); //add the line
                   if (FOutputLines <> nil) then
-                    if LineBeginned then begin
-                      FOutputLines[FOutputLines.Count - 1] := Str;
-                      LineBeginned := False;
-                    end
+                  begin
+                    if LineBeginned and (FOutputLines.Count > 0) then
+                      FOutputLines[FOutputLines.Count - 1] := Str
                     else
                       FOutputLines.Add(Str);
+                    LineBeginned := False;
+                  end;
                   if Assigned(FOnNewLine) then
                     FOnNewLine(FOwner, Str, otEntireLine);
                   Str := '';
                 end;
-              #13: begin
-                  Inc(i);
-                  if (i < iBufSize) and (i < readed) and (pBuf[i] = #10) then
-                    Inc(i); //so we don't test the #10 on the next step of the loop
-                  FTimer.NewOutput; //a new ouput has been caught
-                  FLines.add(Str); //add the line
+              #13:
+                begin
+                  Inc(I);
+                  if (I < readed) and (pBuf[I] = #10) then
+                    Inc(I); //skip #10 if follows #13
+                  FTimer.NewOutput; //a new output has been caught
+                  FLines.Add(Str); //add the line
                   if (FOutputLines <> nil) then
-                    if LineBeginned then begin
-                      FOutputLines[FOutputLines.Count - 1] := Str;
-                      LineBeginned := False;
-                    end
+                  begin
+                    if LineBeginned and (FOutputLines.Count > 0) then
+                      FOutputLines[FOutputLines.Count - 1] := Str
                     else
                       FOutputLines.Add(Str);
+                    LineBeginned := False;
+                  end;
                   if Assigned(FOnNewLine) then
                     FOnNewLine(FOwner, Str, otEntireLine);
                   Str := '';
                 end;
-            else begin
-                Str := Str + pBuf[i]; //add a character
-                Inc(i);
+            else
+              begin
+                Str := Str + string(pBuf[I]); //add a character
+                LineBeginned := True;
+                Inc(I);
               end;
             end;
           end;
           avail := avail - readed;
           Last := Str; // no CRLF found in the rest, maybe in the next output
-        until avail<=0;
+        until avail <= 0;
+      end;
+
+      // Read stderr
+      PeekNamedPipe(errorPipeRead, nil, 0, @bread, @errorAvail, nil);
+      if errorAvail > 0 then
+      begin
+        repeat
+          FillChar(errorBuf, iBufSize, #0);
+          ReadFile(errorPipeRead, errorBuf[0], MaxBufSize, errorReaded, nil);
+          I := 0;
+          while (I < errorReaded) and not Terminated do
+          begin
+            case errorBuf[I] of
+              #0: Inc(I);
+              #10:
+                begin
+                  Inc(I);
+                  if ErrorStr <> '' then
+                  begin
+                    FLines.Add('[ERROR] ' + ErrorStr);
+                    if Assigned(FOnNewError) then
+                      FOnNewError(FOwner, ErrorStr);
+                  end;
+                  ErrorStr := '';
+                end;
+              #13:
+                begin
+                  Inc(I);
+                  if (I < errorReaded) and (errorBuf[I] = #10) then
+                    Inc(I);
+                  if ErrorStr <> '' then
+                  begin
+                    FLines.Add('[ERROR] ' + ErrorStr);
+                    if Assigned(FOnNewError) then
+                      FOnNewError(FOwner, ErrorStr);
+                  end;
+                  ErrorStr := '';
+                end;
+            else
+              begin
+                ErrorStr := ErrorStr + string(errorBuf[I]);
+                Inc(I);
+              end;
+            end;
+          end;
+          errorAvail := errorAvail - errorReaded;
+        until errorAvail <= 0;
       end
       else
         //send lines in input (if exist)
@@ -422,24 +398,26 @@ begin //FExecute
 
       Sleep(SleepPause); // Give other processes a chance
 
-      {if Terminated then //the user has decided to stop the process
-        TerminateProcess(pi.hProcess, 0);}
-
-    until Terminated
-      or (Exit_Code <> STILL_ACTIVE) //process terminated (normally)
+    until (Exit_Code <> STILL_ACTIVE) //process terminated (normally)
       or ((FMaxTimeAfterBeginning < FTimer.FSinceBeginning) and (FMaxTimeAfterBeginning > 0)) //time out
-      or ((FMaxTimeAfterLastOutput < FTimer.FSinceLastOutput) and (FMaxTimeAfterLastOutput > 0));//time out
+      or ((FMaxTimeAfterLastOutput < FTimer.FSinceLastOutput) and (FMaxTimeAfterLastOutput > 0)) //time out
+      or Terminated; //user requested stop
+
+    // Terminate process only if still running
+    if Exit_Code = STILL_ACTIVE then
+      TerminateProcess(pi.hProcess, 0);
   finally
-    TerminateProcess(pi.hProcess, 0);
+    FreeMem(sd);
+    FreeMem(sa);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    CloseHandle(inputPipeRead);
+    CloseHandle(inputPipeWrite);
+    CloseHandle(outputPipeRead);
+    CloseHandle(outputPipeWrite);
+    CloseHandle(errorPipeRead);
+    CloseHandle(errorPipeWrite);
   end;
-  FreeMem(sd);
-  FreeMem(sa);
-  CloseHandle(pi.hThread);
-  CloseHandle(pi.hProcess);
-  CloseHandle(inputPipeRead); //clean stuff up
-  CloseHandle(outputPipeWrite);
-  CloseHandle(outputPipeRead);
-  CloseHandle(inputPipeWrite);
   FTimer.Ending; //turn the timer off
   if Assigned(FOnTerminated) then
     FOnTerminated(FOwner);
@@ -456,7 +434,7 @@ end;
 
 constructor TDosThread.Create(AOwner: TObject; Cl: string; L: TStringList;
   Ol: TStrings; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
-  Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+  One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
 begin
   FOwner := AOwner;
   FCommandline := Cl;
@@ -466,6 +444,7 @@ begin
   InputLines.Clear;
   FInputToOutput := ito;
   FOnNewLine := Onl;
+  FOnNewError := One;
   FOnTerminated := Ot;
   FTimer := t;
   FMaxTimeAfterBeginning := mtab;
@@ -518,6 +497,7 @@ begin
     FMaxTimeAfterBeginning,
     FMaxTimeAfterLastOutput,
     FOnNewLine,
+    FOnNewError,
     FOnTerminated,
     FPriority,
     FInputToOutput,
@@ -539,39 +519,28 @@ end;
 
 procedure TDosThread.WriteToStdIn;
 var
-  bread: DWORD; //bytes read
-  Str, Last: string;
-  LineBeginned: Boolean;
-  oem : CyrillicAnsi;
+  bytesWritten: DWORD;
+  Str: string;
+  oem: CyrillicAnsi;
 begin
-  Last := ''; // Buffer to save last output without finished with CRLF
-  Str := '';
-  LineBeginned := False;
-
   //send lines in input (if exist)
-  while ((InputLines.Count > 0) and not (Terminated)) do
+  while (InputLines.Count > 0) and not Terminated do
   begin
-    Str := InputLines[0]+#13+#10;
+    Str := InputLines[0] + #13+#10;
 
     oem := CyrillicAnsi(Str);
-    //WriteFile(inputPipeWrite, Str[1], ByteLength(Str), bread, nil);
-    WriteFile(inputPipeWrite, oem[1], Length(oem), bread, nil);
+    if not WriteFile(inputPipeWrite, PAnsiChar(oem)^, ByteLength(oem), bytesWritten, nil) then
+    begin
+      // Write failed - pipe may be broken
+      Break;
+    end;
 
     if FInputToOutput then //if we have to output the inputs
     begin
-      InputLines[0] := Copy(InputLines[0], 2, Length(InputLines[0]) - 1);
-      //the first char has to be ignored
       if (FOutputLines <> nil) then
-        if LineBeginned then begin //if we are continuing a line
-          Last := Last + InputLines[0];
-          FOutputLines[FOutputLines.Count - 1] := Last;
-          LineBeginned := False;
-        end
-        else //if it's a new line
-          FOutputLines.Add(InputLines[0]);
+        FOutputLines.Add(InputLines[0]);
       if Assigned(FOnNewLine) then
-        FOnNewLine(FOwner, Last, otEntireLine);
-      Last := '';
+        FOnNewLine(FOwner, InputLines[0], otEntireLine);
     end;
     InputLines.Delete(0); //delete the line that has been send
   end;
@@ -599,7 +568,7 @@ end;
 
 function TDosCommand.GetIsRunning: boolean;
 begin
-  Result := not Assigned(FThread) or (Assigned(FThread.FTimer) and FThread.FTimer.Enabled);
+  Result := Assigned(FThread) and not FThread.Terminated;
 end;
 
 //------------------------------------------------------------------------------
