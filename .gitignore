@@ -3,3 +3,9 @@
 *.tmp
 *.lck
 *.mlg
+base\*.cfg
+base\*.lst
+base\*.dbf
+base\*.cdx
+base\history.prm
+v7Addin\Base\*.dll
