@@ -13,33 +13,33 @@ type
     fEventSource: string;
     fShowWindow: string;
   public
-    // Запускатель внешних комманд
+    // Р—Р°РїСѓСЃРєР°С‚РµР»СЊ РІРЅРµС€РЅРёС… РєРѕРјРјР°РЅРґ
     command: TDosCommand;
 
-    { Место для собственных методов и свойств компоненты }
-    [v7Method('Start,Запустить')]
+    { РњРµСЃС‚Рѕ РґР»СЏ СЃРѕР±СЃС‚РІРµРЅРЅС‹С… РјРµС‚РѕРґРѕРІ Рё СЃРІРѕР№СЃС‚РІ РєРѕРјРїРѕРЅРµРЅС‚С‹ }
+    [v7Method('Start,Р—Р°РїСѓСЃС‚РёС‚СЊ')]
     function RunPipe(exepath: OleVariant): OleVariant;
 
-    [v7Method('Stop,Завершить')]
+    [v7Method('Stop,Р—Р°РІРµСЂС€РёС‚СЊ')]
     function StopPipe(): OleVariant;
 
-    [v7Method('Write,Записать')]
+    [v7Method('Write,Р—Р°РїРёСЃР°С‚СЊ')]
     function WritePipe(msg: OleVariant): OleVariant;
 
     procedure OnCommanNewLine(Sender: TObject; NewLine: string; OutputType: TOutputType);
 
-    [v7Property('ShowWindow,ПоказыватьОкно')]
+    [v7Property('ShowWindow,РџРѕРєР°Р·С‹РІР°С‚СЊРћРєРЅРѕ')]
     property ShowWindow: string read fShowWindow write fShowWindow;
 
-    [v7Property('EventSource,СобытиеИсточник')]
+    [v7Property('EventSource,РЎРѕР±С‹С‚РёРµРСЃС‚РѕС‡РЅРёРє')]
     property EventSource: string read fEventSource write fEventSource;
 
-    [v7Property('EventAction,СобытиеДействие')]
+    [v7Property('EventAction,РЎРѕР±С‹С‚РёРµР”РµР№СЃС‚РІРёРµ')]
     property EventAction:string read fEventAction write fEventAction;
 
-    [v7Property('EventPrefix,СобытиеПрефикс')]
+    [v7Property('EventPrefix,РЎРѕР±С‹С‚РёРµРџСЂРµС„РёРєСЃ')]
     property EventPrefix:string read fEventPrefix write fEventPrefix;
-
+    
     procedure after_done; override;
   protected
     function ExtensionName:string; override;
@@ -64,9 +64,12 @@ begin
       EventSource := exepath;
     if Length(EventAction) = 0 then
       EventAction := 'process';
-
-  finally
-
+  except
+    on E: Exception do
+    begin
+      ShowErrorLog('Error creating process: ' + E.Message);
+      Exit;
+    end;
   end;
   result := 1;
 end;
@@ -98,7 +101,7 @@ begin
     if EventPrefix <> LeftStr(NewLine, Length(EventPrefix)) then
       Exit;
   end;
-  Self.SendEvent(NewLine, EventAction, EventSource);
+    Self.SendEvent(NewLine, EventAction, EventSource);
 end;
 
 function TAddInProcess.WritePipe(msg: OleVariant): OleVariant;
