@@ -28,6 +28,7 @@ type
 
     procedure OnCommanNewLine(Sender: TObject; NewLine: string; OutputType: TOutputType);
     procedure OnCommandNewError(Sender: TObject; Message: string);
+    procedure OnCommandTerminate(Sender: TObject);
 
     [v7Property('ShowWindow,ПоказыватьОкно')]
     property ShowWindow: string read fShowWindow write fShowWindow;
@@ -60,6 +61,7 @@ begin
     self.command.CommandLine := exepath;
     self.command.OnNewLine := self.OnCommanNewLine;
     self.command.OnNewError := self.OnCommandNewError;
+    self.command.OnTerminated := self.OnCommandTerminate;
     self.command.show_window := Length(fShowWindow) > 0;
     self.command.Execute;
     self.command.InputToOutput := false;
@@ -110,6 +112,11 @@ end;
 procedure TAddInProcess.OnCommandNewError(Sender: TObject; Message: string);
 begin
   LogError('Process error: ' + Message);
+end;
+
+procedure TAddInProcess.OnCommandTerminate(Sender: TObject);
+begin
+  LogInfo('Process terminate ['+EventSource+':'+EventAction+']');
 end;
 
 function TAddInProcess.WritePipe(msg: OleVariant): OleVariant;
