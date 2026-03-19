@@ -58,7 +58,8 @@ type
     {Функция для получения ссылки на контекст 1С без зависания при выходе}
     function v7GetAppDisp:OleVariant;
 
-    procedure ShowErrorLog(MsgText:String);
+    procedure LogError(MsgText:String);
+    procedure LogInfo(MsgText:String);
     procedure SendEvent(MsgText:String; Sender:String='Process'; Source:String='Message');
 
     procedure Initialize; override;
@@ -418,7 +419,7 @@ begin
   end;
 end;
 
-procedure TBaseAddIn.ShowErrorLog(MsgText: String);
+procedure TBaseAddIn.LogError(MsgText: String);
 var
   ErrInfo: PExcepInfo;
 begin
@@ -428,6 +429,19 @@ begin
   ErrInfo^.bstrDescription := MsgText;
   ErrInfo^.wCode := 1006;
   ErrInfo^.scode := E_FAIL;
+  pErrorLog.AddError(nil, ErrInfo^);
+end;
+
+procedure TBaseAddIn.LogInfo(MsgText: String);
+var
+  ErrInfo: PExcepInfo;
+begin
+  if Trim(MsgText) = '' then Exit;
+  New(ErrInfo);
+  ErrInfo^.bstrSource := self.ExtensionName;
+  ErrInfo^.bstrDescription := MsgText;
+  ErrInfo^.wCode := 1005;
+  ErrInfo^.scode := E_UNEXPECTED;
   pErrorLog.AddError(nil, ErrInfo^);
 end;
 

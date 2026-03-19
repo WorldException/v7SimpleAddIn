@@ -373,10 +373,18 @@ begin //FExecute
           end;
           errorAvail := errorAvail - errorReaded;
         until errorAvail <= 0;
-      end
-      else
-        //send lines in input (if exist)
-        self.WriteToStdIn;
+        if ErrorStr <> '' then
+        begin
+          if Assigned(FOnNewError) then
+            Synchronize(procedure begin
+              FOnNewError(FOwner, ErrorStr);
+            end);
+        end;
+        ErrorStr := '';
+      end;
+      
+      //send lines in input (if exist)
+      self.WriteToStdIn;
 
       Sleep(SleepPause); // Give other processes a chance
 

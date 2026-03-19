@@ -13,31 +13,32 @@ type
     fEventSource: string;
     fShowWindow: string;
   public
-    // Ð—Ð°Ð¿ÑƒÑÐºÐ°Ñ‚ÐµÐ»ÑŒ Ð²Ð½ÐµÑˆÐ½Ð¸Ñ… ÐºÐ¾Ð¼Ð¼Ð°Ð½Ð´
+    // Çàïóñêàòåëü âíåøíèõ êîììàíä
     command: TDosCommand;
 
-    { ÐœÐµÑÑ‚Ð¾ Ð´Ð»Ñ ÑÐ¾Ð±ÑÑ‚Ð²ÐµÐ½Ð½Ñ‹Ñ… Ð¼ÐµÑ‚Ð¾Ð´Ð¾Ð² Ð¸ ÑÐ²Ð¾Ð¹ÑÑ‚Ð² ÐºÐ¾Ð¼Ð¿Ð¾Ð½ÐµÐ½Ñ‚Ñ‹ }
-    [v7Method('Start,Ð—Ð°Ð¿ÑƒÑÑ‚Ð¸Ñ‚ÑŒ')]
+    { Ìåñòî äëÿ ñîáñòâåííûõ ìåòîäîâ è ñâîéñòâ êîìïîíåíòû }
+    [v7Method('Start,Çàïóñòèòü')]
     function RunPipe(exepath: OleVariant): OleVariant;
 
-    [v7Method('Stop,Ð—Ð°Ð²ÐµÑ€ÑˆÐ¸Ñ‚ÑŒ')]
+    [v7Method('Stop,Çàâåðøèòü')]
     function StopPipe(): OleVariant;
 
-    [v7Method('Write,Ð—Ð°Ð¿Ð¸ÑÐ°Ñ‚ÑŒ')]
+    [v7Method('Write,Çàïèñàòü')]
     function WritePipe(msg: OleVariant): OleVariant;
 
     procedure OnCommanNewLine(Sender: TObject; NewLine: string; OutputType: TOutputType);
+    procedure OnCommandNewError(Sender: TObject; Message: string);
 
-    [v7Property('ShowWindow,ÐŸÐ¾ÐºÐ°Ð·Ñ‹Ð²Ð°Ñ‚ÑŒÐžÐºÐ½Ð¾')]
+    [v7Property('ShowWindow,ÏîêàçûâàòüÎêíî')]
     property ShowWindow: string read fShowWindow write fShowWindow;
 
-    [v7Property('EventSource,Ð¡Ð¾Ð±Ñ‹Ñ‚Ð¸ÐµÐ˜ÑÑ‚Ð¾Ñ‡Ð½Ð¸Ðº')]
+    [v7Property('EventSource,ÑîáûòèåÈñòî÷íèê')]
     property EventSource: string read fEventSource write fEventSource;
 
-    [v7Property('EventAction,Ð¡Ð¾Ð±Ñ‹Ñ‚Ð¸ÐµÐ”ÐµÐ¹ÑÑ‚Ð²Ð¸Ðµ')]
+    [v7Property('EventAction,ÑîáûòèåÄåéñòâèå')]
     property EventAction:string read fEventAction write fEventAction;
 
-    [v7Property('EventPrefix,Ð¡Ð¾Ð±Ñ‹Ñ‚Ð¸ÐµÐŸÑ€ÐµÑ„Ð¸ÐºÑ')]
+    [v7Property('EventPrefix,ÑîáûòèåÏðåôèêñ')]
     property EventPrefix:string read fEventPrefix write fEventPrefix;
     
     procedure after_done; override;
@@ -51,12 +52,14 @@ uses StrUtils, SysUtils;
 
 function TAddInProcess.RunPipe(exepath: OleVariant): OleVariant;
 begin
+  Self.LogInfo('start source:'+EventSource+', action:'+EventAction);
   result := 0;
   self.StopPipe();
   try
     self.command := TDosCommand.Create(nil);
     self.command.CommandLine := exepath;
     self.command.OnNewLine := self.OnCommanNewLine;
+    self.command.OnNewError := self.OnCommandNewError;
     self.command.show_window := Length(fShowWindow) > 0;
     self.command.Execute;
     self.command.InputToOutput := false;
@@ -67,7 +70,7 @@ begin
   except
     on E: Exception do
     begin
-      ShowErrorLog('Error creating process: ' + E.Message);
+      LogError('Error creating process: ' + E.Message);
       Exit;
     end;
   end;
@@ -102,6 +105,11 @@ begin
       Exit;
   end;
     Self.SendEvent(NewLine, EventAction, EventSource);
+end;
+
+procedure TAddInProcess.OnCommandNewError(Sender: TObject; Message: string);
+begin
+  LogError('Process error: ' + Message);
 end;
 
 function TAddInProcess.WritePipe(msg: OleVariant): OleVariant;
