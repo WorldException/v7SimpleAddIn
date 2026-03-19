@@ -37,8 +37,6 @@ type
   private
     FOwner: TObject;
     FCommandLine: string;
-    FLines: TStringList;
-    FOutputLines: TStrings;
     FInputToOutput: Boolean;
     FTimer: TProcessTimer;
     FMaxTimeAfterBeginning: Integer;
@@ -59,8 +57,7 @@ type
   public
     show_window: boolean;
     InputLines: TstringList;
-    constructor Create(AOwner: TObject; Cl: string; L: TStringList;
-      Ol: TStrings; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
+    constructor Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
       One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
   end;
 
@@ -68,8 +65,6 @@ type
   private
     FOwner: TComponent;
     FCommandLine: string;
-    FLines: TStringList;
-    FOutputLines: TStrings;
     FInputToOutput: Boolean;
     FOnNewLine: TNewLineEvent;
     FOnNewError: TNewErrorEvent;
@@ -81,7 +76,6 @@ type
     FPriority: Integer; //[HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
                         // NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS]
 
-    procedure SetOutputLines(Value: TStrings);
     function GetIsRunning: boolean; // MK: 20030613
   protected
   public
@@ -92,10 +86,6 @@ type
     procedure SendLine(Value: string; Eol: Boolean=True); //add a line in the input pipe
     property IsRunning: boolean read GetIsRunning; // MK: 20030613
       // When true, a command is still running
-    property OutputLines: TStrings read FOutputLines write SetOutputLines;
-      //can be lines of a memo, a richedit, a listbox, ...
-    property Lines: TStringList read FLines;
-       //if the user want to access all the outputs of a process, he can use this property
     property Priority: Integer read FPriority write FPriority; //priority of the process
   published
     property CommandLine: string read FCommandLine write FCommandLine;
@@ -301,15 +291,6 @@ begin //FExecute
                 begin
                   Inc(I);
                   FTimer.NewOutput; //a new output has been caught
-                  FLines.Add(Str); //add the line
-                  if (FOutputLines <> nil) then
-                  begin
-                    if LineBeginned and (FOutputLines.Count > 0) then
-                      FOutputLines[FOutputLines.Count - 1] := Str
-                    else
-                      FOutputLines.Add(Str);
-                    LineBeginned := False;
-                  end;
                   if Assigned(FOnNewLine) then
                     FOnNewLine(FOwner, Str, otEntireLine);
                   Str := '';
@@ -320,15 +301,6 @@ begin //FExecute
                   if (I < readed) and (pBuf[I] = #10) then
                     Inc(I); //skip #10 if follows #13
                   FTimer.NewOutput; //a new output has been caught
-                  FLines.Add(Str); //add the line
-                  if (FOutputLines <> nil) then
-                  begin
-                    if LineBeginned and (FOutputLines.Count > 0) then
-                      FOutputLines[FOutputLines.Count - 1] := Str
-                    else
-                      FOutputLines.Add(Str);
-                    LineBeginned := False;
-                  end;
                   if Assigned(FOnNewLine) then
                     FOnNewLine(FOwner, Str, otEntireLine);
                   Str := '';
@@ -363,7 +335,6 @@ begin //FExecute
                   Inc(I);
                   if ErrorStr <> '' then
                   begin
-                    FLines.Add('[ERROR] ' + ErrorStr);
                     if Assigned(FOnNewError) then
                       FOnNewError(FOwner, ErrorStr);
                   end;
@@ -376,7 +347,6 @@ begin //FExecute
                     Inc(I);
                   if ErrorStr <> '' then
                   begin
-                    FLines.Add('[ERROR] ' + ErrorStr);
                     if Assigned(FOnNewError) then
                       FOnNewError(FOwner, ErrorStr);
                   end;
@@ -432,50 +402,37 @@ end;
 
 //------------------------------------------------------------------------------
 
-constructor TDosThread.Create(AOwner: TObject; Cl: string; L: TStringList;
-  Ol: TStrings; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
-  One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+constructor TDosThread.Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
+ One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
 begin
-  FOwner := AOwner;
-  FCommandline := Cl;
-  FLines := L;
-  FOutputLines := Ol;
-  InputLines := TStringList.Create;
-  InputLines.Clear;
-  FInputToOutput := ito;
-  FOnNewLine := Onl;
-  FOnNewError := One;
-  FOnTerminated := Ot;
-  FTimer := t;
-  FMaxTimeAfterBeginning := mtab;
-  FMaxTimeAfterLastOutput := mtalo;
-  FPriority := p;
-  show_window := _show_window;
-  inherited Create(False);
+ FOwner := AOwner;
+ FCommandline := Cl;
+ InputLines := TStringList.Create;
+ InputLines.Clear;
+ FInputToOutput := ito;
+ FOnNewLine := Onl;
+ FOnNewError := One;
+ FOnTerminated := Ot;
+ FTimer := t;
+ FMaxTimeAfterBeginning := mtab;
+ FMaxTimeAfterLastOutput := mtalo;
+ FPriority := p;
+ show_window := _show_window;
+ inherited Create(False);
 end;
 
 //------------------------------------------------------------------------------
 
 constructor TDosCommand.Create(AOwner: TComponent);
 begin
-  inherited;
-  FOwner := AOwner;
-  FCommandLine := '';
-  FLines := TStringList.Create;
-  Flines.Clear;
-  FTimer := nil;
-  FMaxTimeAfterBeginning := 0;
-  FMaxTimeAfterLastOutput := 0;
-  FPriority := NORMAL_PRIORITY_CLASS;
-  show_window := false;
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TDosCommand.SetOutputLines(Value: TStrings);
-begin
-  if (FOutputLines <> Value) then
-    FOutputLines := Value;
+ inherited;
+ FOwner := AOwner;
+ FCommandLine := '';
+ FTimer := nil;
+ FMaxTimeAfterBeginning := 0;
+ FMaxTimeAfterLastOutput := 0;
+ FPriority := NORMAL_PRIORITY_CLASS;
+ show_window := false;
 end;
 
 //------------------------------------------------------------------------------
@@ -486,13 +443,10 @@ begin
     raise EDosCommand.Create('No Commandline to execute');
   if (FTimer = nil) then //create the timer (first call to execute)
     FTimer := TProcessTimer.Create(FOwner);
-  FLines.Clear; //clear old outputs
   FTimer.Beginning; //turn the timer on
   FThread := TDosThread.Create(
     Self,
     FCommandLine,
-    FLines,
-    FOutputLines,
     FTimer,
     FMaxTimeAfterBeginning,
     FMaxTimeAfterLastOutput,
@@ -537,8 +491,6 @@ begin
 
     if FInputToOutput then //if we have to output the inputs
     begin
-      if (FOutputLines <> nil) then
-        FOutputLines.Add(InputLines[0]);
       if Assigned(FOnNewLine) then
         FOnNewLine(FOwner, InputLines[0], otEntireLine);
     end;
