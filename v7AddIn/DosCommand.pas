@@ -3,7 +3,7 @@ unit DosCommand;
 interface
 
 uses
-  Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, ExtCtrls;
+  Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, ExtCtrls, SyncObjs;
 const
   MaxBufSize = 1000;
   SleepPause = 50;
@@ -47,6 +47,7 @@ type
     FCreatePipeError: TCreatePipeError;
     FCreateProcessError: TCreateProcessError;
     FPriority: Integer;
+    FInputLinesLock: TRTLCriticalSection; // Lock for InputLines access
     inputPipeRead, inputPipeWrite: THandle; // stdin pipe handles
     outputPipeRead, outputPipeWrite: THandle; // stdout pipe handles
     errorPipeRead, errorPipeWrite: THandle; // stderr pipe handles
@@ -59,6 +60,7 @@ type
     InputLines: TstringList;
     constructor Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
       One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+    destructor Destroy; override;
   end;
 
   TDosCommand = class(TComponent) //the component to put on a form
@@ -75,12 +77,14 @@ type
     FMaxTimeAfterLastOutput: Integer;
     FPriority: Integer; //[HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
                         // NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS]
+    FThreadLock: TRTLCriticalSection; // Lock for FThread access
 
     function GetIsRunning: boolean; // MK: 20030613
   protected
   public
     show_window: boolean;
     constructor Create(AOwner: TComponent); override;
+    destructor Destroy; override;
     procedure Execute; //the user call this to execute the command
     procedure Stop; //the user can stop the process with this method
     procedure SendLine(Value: string; Eol: Boolean=True); //add a line in the input pipe
@@ -292,7 +296,9 @@ begin //FExecute
                   Inc(I);
                   FTimer.NewOutput; //a new output has been caught
                   if Assigned(FOnNewLine) then
-                    FOnNewLine(FOwner, Str, otEntireLine);
+                    Synchronize(procedure begin
+                      FOnNewLine(FOwner, Str, otEntireLine);
+                    end);
                   Str := '';
                 end;
               #13:
@@ -302,7 +308,9 @@ begin //FExecute
                     Inc(I); //skip #10 if follows #13
                   FTimer.NewOutput; //a new output has been caught
                   if Assigned(FOnNewLine) then
-                    FOnNewLine(FOwner, Str, otEntireLine);
+                    Synchronize(procedure begin
+                      FOnNewLine(FOwner, Str, otEntireLine);
+                    end);
                   Str := '';
                 end;
             else
@@ -336,7 +344,9 @@ begin //FExecute
                   if ErrorStr <> '' then
                   begin
                     if Assigned(FOnNewError) then
-                      FOnNewError(FOwner, ErrorStr);
+                      Synchronize(procedure begin
+                        FOnNewError(FOwner, ErrorStr);
+                      end);
                   end;
                   ErrorStr := '';
                 end;
@@ -348,7 +358,9 @@ begin //FExecute
                   if ErrorStr <> '' then
                   begin
                     if Assigned(FOnNewError) then
-                      FOnNewError(FOwner, ErrorStr);
+                      Synchronize(procedure begin
+                        FOnNewError(FOwner, ErrorStr);
+                      end);
                   end;
                   ErrorStr := '';
                 end;
@@ -390,7 +402,9 @@ begin //FExecute
   end;
   FTimer.Ending; //turn the timer off
   if Assigned(FOnTerminated) then
-    FOnTerminated(FOwner);
+    Synchronize(procedure begin
+      FOnTerminated(FOwner);
+    end);
 end;
 
 //------------------------------------------------------------------------------
@@ -405,6 +419,7 @@ end;
 constructor TDosThread.Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
  One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
 begin
+ InitializeCriticalSection(FInputLinesLock);
  FOwner := AOwner;
  FCommandline := Cl;
  InputLines := TStringList.Create;
@@ -421,10 +436,17 @@ begin
  inherited Create(False);
 end;
 
+destructor TDosThread.Destroy;
+begin
+ DeleteCriticalSection(FInputLinesLock);
+ inherited;
+end;
+
 //------------------------------------------------------------------------------
 
 constructor TDosCommand.Create(AOwner: TComponent);
 begin
+ InitializeCriticalSection(FThreadLock);
  inherited;
  FOwner := AOwner;
  FCommandLine := '';
@@ -435,40 +457,77 @@ begin
  show_window := false;
 end;
 
+destructor TDosCommand.Destroy;
+begin
+ DeleteCriticalSection(FThreadLock);
+ if Assigned(FThread) then
+   FreeAndNil(FThread);
+ if Assigned(FTimer) then
+   FreeAndNil(FTimer);
+ inherited;
+end;
+
 //------------------------------------------------------------------------------
 
 procedure TDosCommand.Execute;
+var
+  ThreadToCreate: TDosThread;
 begin
-  if FCommandLine = '' then  // MK: 20030613
-    raise EDosCommand.Create('No Commandline to execute');
-  if (FTimer = nil) then //create the timer (first call to execute)
-    FTimer := TProcessTimer.Create(FOwner);
-  FTimer.Beginning; //turn the timer on
-  FThread := TDosThread.Create(
-    Self,
-    FCommandLine,
-    FTimer,
-    FMaxTimeAfterBeginning,
-    FMaxTimeAfterLastOutput,
-    FOnNewLine,
-    FOnNewError,
-    FOnTerminated,
-    FPriority,
-    FInputToOutput,
-    show_window
-  );
+  EnterCriticalSection(FThreadLock);
+  try
+    if FCommandLine = '' then  // MK: 20030613
+      raise EDosCommand.Create('No Commandline to execute');
+    
+    if Assigned(FThread) and not FThread.Terminated then
+      raise EDosCommand.Create('Thread already running');
+    
+    if (FTimer = nil) then //create the timer (first call to execute)
+      FTimer := TProcessTimer.Create(FOwner);
+    FTimer.Beginning; //turn the timer on
+    
+    // Create thread outside lock to avoid deadlock
+    ThreadToCreate := TDosThread.Create(
+      Self,
+      FCommandLine,
+      FTimer,
+      FMaxTimeAfterBeginning,
+      FMaxTimeAfterLastOutput,
+      FOnNewLine,
+      FOnNewError,
+      FOnTerminated,
+      FPriority,
+      FInputToOutput,
+      show_window
+    );
+    FThread := ThreadToCreate;
+  finally
+    LeaveCriticalSection(FThreadLock);
+  end;
 end;
 
 //------------------------------------------------------------------------------
 
 procedure TDosCommand.Stop;
+var
+  ThreadToFree: TDosThread;
 begin
-  if (FThread <> nil) then
-  begin
-    FThread.DoTerminate; //terminate the process
-    FThread.Free; //free memory
-    FThread := nil;
+  EnterCriticalSection(FThreadLock);
+  try
+    if Assigned(FThread) then
+    begin
+      FThread.DoTerminate; //terminate the process
+      ThreadToFree := FThread;
+      FThread := nil;
+    end
+    else
+      ThreadToFree := nil;
+  finally
+    LeaveCriticalSection(FThreadLock);
   end;
+  
+  // Free outside lock to avoid deadlock
+  if Assigned(ThreadToFree) then
+    ThreadToFree.Free;
 end;
 
 procedure TDosThread.WriteToStdIn;
@@ -476,37 +535,55 @@ var
   bytesWritten: DWORD;
   Str: string;
   oem: CyrillicAnsi;
+  LineToProcess: string;
 begin
   //send lines in input (if exist)
-  while (InputLines.Count > 0) and not Terminated do
-  begin
-    Str := InputLines[0] + #13+#10;
-
-    oem := CyrillicAnsi(Str);
-    if not WriteFile(inputPipeWrite, PAnsiChar(oem)^, ByteLength(oem), bytesWritten, nil) then
+  EnterCriticalSection(FInputLinesLock);
+  try
+    while (InputLines.Count > 0) and not Terminated do
     begin
-      // Write failed - pipe may be broken
-      Break;
-    end;
+      LineToProcess := InputLines[0] + #13+#10;
+      InputLines.Delete(0); //delete the line immediately after reading
+      
+      oem := CyrillicAnsi(LineToProcess);
+      if not WriteFile(inputPipeWrite, PAnsiChar(oem)^, ByteLength(oem), bytesWritten, nil) then
+      begin
+        // Write failed - pipe may be broken
+        Break;
+      end;
 
-    if FInputToOutput then //if we have to output the inputs
-    begin
-      if Assigned(FOnNewLine) then
-        FOnNewLine(FOwner, InputLines[0], otEntireLine);
+      if FInputToOutput then //if we have to output the inputs
+      begin
+        if Assigned(FOnNewLine) then
+          FOnNewLine(FOwner, Copy(LineToProcess, 1, Length(LineToProcess) - 2), otEntireLine);
+      end;
     end;
-    InputLines.Delete(0); //delete the line that has been send
+  finally
+    LeaveCriticalSection(FInputLinesLock);
   end;
 end;
 
 //------------------------------------------------------------------------------
 
 procedure TDosCommand.SendLine(Value: string; Eol: Boolean);
-const
-  EolCh: array[Boolean] of Char = (' ', '_');
+var
+  ThreadRef: TDosThread;
 begin
-  if (FThread <> nil) then
-    //FThread.InputLines.Add(EolCh[Eol] + Value);
-    FThread.InputLines.Add(Value);
+  EnterCriticalSection(FThreadLock);
+  try
+    if Assigned(FThread) then
+    begin
+      ThreadRef := FThread;
+      EnterCriticalSection(ThreadRef.FInputLinesLock);
+      try
+        ThreadRef.InputLines.Add(Value);
+      finally
+        LeaveCriticalSection(ThreadRef.FInputLinesLock);
+      end;
+    end;
+  finally
+    LeaveCriticalSection(FThreadLock);
+  end;
 end;
 
 //------------------------------------------------------------------------------
@@ -519,8 +596,16 @@ end;
 //------------------------------------------------------------------------------
 
 function TDosCommand.GetIsRunning: boolean;
+var
+  ThreadRef: TDosThread;
 begin
-  Result := Assigned(FThread) and not FThread.Terminated;
+  EnterCriticalSection(FThreadLock);
+  try
+    ThreadRef := FThread;
+    Result := Assigned(ThreadRef) and not ThreadRef.Terminated;
+  finally
+    LeaveCriticalSection(FThreadLock);
+  end;
 end;
 
 //------------------------------------------------------------------------------
