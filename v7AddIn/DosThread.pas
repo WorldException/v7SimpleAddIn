@@ -45,7 +45,7 @@ type
     FOnNewError: TNewErrorEvent;
     FOnTerminated: TNotifyEvent;
     FCreatePipeError: TCreatePipeError;
-    FCreateProcessError: TCreateProcessError;
+    //FCreateProcessError: TCreateProcessError;
     FPriority: Integer;
     FInputLinesLock: TRTLCriticalSection; // Lock for InputLines access
     inputPipeRead, inputPipeWrite: THandle; // stdin pipe handles
@@ -60,6 +60,7 @@ type
     procedure WriteToStdIn();
     function CheckProcessAlive(): boolean;
     procedure ReadStdIn();
+    procedure ReadStdErr();
   protected
     procedure Execute; override; //call this to create the process
   public
@@ -134,19 +135,10 @@ end;
 //------------------------------------------------------------------------------
 procedure TDosThread.FExecute;
 var
-  pBuf: TCharBuffer; // stdout buffer
-  errorBuf: TCharBuffer; // stderr buffer
-  iBufSize: Cardinal;
   app_spawn: PChar;
   si: TStartupInfo;
-  bread: DWORD; //bytes read
-  readed: DWORD;
-  errorReaded: DWORD;
-  avail: DWORD; //bytes available in stdout
-  errorAvail: DWORD; //bytes available in stderr
-  Str, Last, ErrorStr: string;
-  I: LongWord;
-  LineBeginned, created: Boolean;
+  Last: string;
+  created: Boolean;
 begin //FExecute
 
   // START PROCESS
@@ -182,12 +174,6 @@ begin //FExecute
   end;
 
   Last := ''; // Buffer to save last output without finished with CRLF
-  ErrorStr := ''; // Buffer for stderr
-  Str := '';
-  LineBeginned := False;
-  iBufSize := MaxBufSize;
-  FillChar(pBuf, iBufSize, #0);
-  FillChar(errorBuf, iBufSize, #0);
   try
     repeat //main program loop
       if not CheckProcessAlive() or Terminated then begin
@@ -197,58 +183,8 @@ begin //FExecute
       ReadStdIn();
 
       // Read stderr
-      PeekNamedPipe(errorPipeRead, nil, 0, @bread, @errorAvail, nil);
-      if errorAvail > 0 then
-      begin
-        repeat
-          FillChar(errorBuf, iBufSize, #0);
-          ReadFile(errorPipeRead, errorBuf[0], MaxBufSize, errorReaded, nil);
-          I := 0;
-          if errorReaded = 0 then
-            break;
-          while (I < errorReaded) and not Terminated do
-          begin
-            case errorBuf[I] of
-              #0: Inc(I);
-              #10:
-                begin
-                  Inc(I);
-                  if ErrorStr <> '' then
-                  begin
-                    if Assigned(FOnNewError) then
-                        FOnNewError(FOwner, ErrorStr);
-                  end;
-                  ErrorStr := '';
-                end;
-              #13:
-                begin
-                  Inc(I);
-                  if (I < errorReaded) and (errorBuf[I] = #10) then
-                    Inc(I);
-                  if ErrorStr <> '' then
-                  begin
-                    if Assigned(FOnNewError) then
-                        FOnNewError(FOwner, ErrorStr);
-                  end;
-                  ErrorStr := '';
-                end;
-            else
-              begin
-                ErrorStr := ErrorStr + string(errorBuf[I]);
-                Inc(I);
-              end;
-            end;
-          end;
-          errorAvail := errorAvail - errorReaded;
-        until errorAvail <= 0;
-        if ErrorStr <> '' then
-        begin
-          if Assigned(FOnNewError) then
-              FOnNewError(FOwner, ErrorStr);
-        end;
-        ErrorStr := '';
-      end;
-      
+      ReadStdErr();
+
       //send lines in input (if exist)
       self.WriteToStdIn;
 
@@ -273,26 +209,19 @@ end;
 procedure TDosThread.ReadStdIn();
 var
   pBuf: TCharBuffer; // stdout buffer
-  errorBuf: TCharBuffer; // stderr buffer
   iBufSize: Cardinal;
-  app_spawn: PChar;
-  si: TStartupInfo;
   bread: DWORD; //bytes read
   readed: DWORD;
-  errorReaded: DWORD;
   avail: DWORD; //bytes available in stdout
-  errorAvail: DWORD; //bytes available in stderr
-  Str, Last, ErrorStr: string;
+  Str, Last: string;
   I: LongWord;
 begin
-  Last := ''; // Buffer to save last output without finished with CRLF
   Str := '';
   iBufSize := MaxBufSize;
   // Read stdout
   PeekNamedPipe(outputPipeRead, nil, 0, @bread, @avail, nil);
   if avail > 0 then
   begin
-    //Str := Last; //take the begin of the line (if exists)
     repeat
       FillChar(pBuf, iBufSize, #0); //empty the buffer
       ReadFile(outputPipeRead, pBuf[0], MaxBufSize, readed, nil); //read the stdout pipe
@@ -329,8 +258,69 @@ begin
         end;
       end;
       avail := avail - readed;
-      //Last := Str; // no CRLF found in the rest, maybe in the next output
     until avail <= 0;
+    Last := Str; // no CRLF found in the rest, maybe in the next output
+  end;
+end;
+
+procedure TDosThread.ReadStdErr();
+var
+  pBuf: TCharBuffer; // stdout buffer
+  iBufSize: Cardinal;
+  bread: DWORD; //bytes read
+  readed: DWORD;
+  avail: DWORD; //bytes available in stdout
+  Str, Last: string;
+  I: LongWord;
+begin
+  Str := '';
+  iBufSize := MaxBufSize;
+  // Read stdout
+  PeekNamedPipe(errorPipeRead, nil, 0, @bread, @avail, nil);
+  if avail > 0 then
+  begin
+    repeat
+      FillChar(pBuf, iBufSize, #0); //empty the buffer
+      ReadFile(errorPipeRead, pBuf[0], MaxBufSize, readed, nil); //read the stdout pipe
+      I := 0;
+      if readed = 0 then
+        break;
+      while (I < readed) and not Terminated do
+      begin
+        case pBuf[I] of
+          #0: Inc(I);
+          #10:
+            begin
+              Inc(I);
+              FTimer.NewOutput; //a new output has been caught
+              if Assigned(FOnNewError) then
+                FOnNewError(FOwner, Str);
+              Str := '';
+            end;
+          #13:
+            begin
+              Inc(I);
+              if (I < readed) and (pBuf[I] = #10) then
+                Inc(I); //skip #10 if follows #13
+              FTimer.NewOutput; //a new output has been caught
+              if Assigned(FOnNewError) then
+                FOnNewError(FOwner, Str);
+              Str := '';
+            end;
+        else
+          begin
+            Str := Str + string(pBuf[I]); //add a character
+            Inc(I);
+          end;
+        end;
+      end;
+      avail := avail - readed;
+      Last := Str; // no CRLF found in the rest, maybe in the next output
+    until avail <= 0;
+    if Str <> '' then begin
+      if Assigned(FOnNewError) then
+          FOnNewError(FOwner, Str);
+    end;
   end;
 end;
 
@@ -423,7 +413,6 @@ end;
 procedure TDosThread.WriteToStdIn;
 var
   bytesWritten: DWORD;
-  Str: string;
   oem: CyrillicAnsi;
   LineToProcess: string;
 begin
