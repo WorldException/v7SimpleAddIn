@@ -6,7 +6,7 @@ uses
   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, ExtCtrls, SyncObjs;
 const
   MaxBufSize = 1000;
-  SleepPause = 50;
+  SleepPause = 100;
 
 type
   CyrillicAnsi = type AnsiString(1251);
@@ -258,7 +258,7 @@ begin
         end;
       end;
       avail := avail - readed;
-    until avail <= 0;
+    until (avail <= 0) or Terminated;
     Last := Str; // no CRLF found in the rest, maybe in the next output
   end;
 end;
@@ -316,7 +316,7 @@ begin
       end;
       avail := avail - readed;
       Last := Str; // no CRLF found in the rest, maybe in the next output
-    until avail <= 0;
+    until (avail <= 0) or Terminated;
     if Str <> '' then begin
       if Assigned(FOnNewError) then
           FOnNewError(FOwner, Str);

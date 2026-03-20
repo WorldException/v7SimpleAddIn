@@ -30,7 +30,6 @@ type
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
     procedure Execute; //the user call this to execute the command
-    procedure Stop; //the user can stop the process with this method
     procedure SendLine(Value: string; Eol: Boolean=True); //add a line in the input pipe
     property IsRunning: boolean read GetIsRunning; // MK: 20030613
       // When true, a command is still running
@@ -125,16 +124,6 @@ begin
   finally
     LeaveCriticalSection(FThreadLock);
   end;
-end;
-
-//------------------------------------------------------------------------------
-
-procedure TDosCommand.Stop;
-begin
-    if Assigned(FThread) and FThread.Started and not FThread.Finished then
-    begin
-      FThread.Terminate; //terminate the process
-    end
 end;
 
 //------------------------------------------------------------------------------

@@ -53,7 +53,7 @@ uses StrUtils, SysUtils;
 
 function TAddInProcess.RunPipe(exepath: OleVariant): OleVariant;
 begin
-  Self.LogInfo('start source:'+EventSource+', action:'+EventAction);
+  Self.LogInfo('Start process ['+EventSource+':'+EventAction+']');
   result := 0;
   self.StopPipe();
   try
@@ -84,9 +84,9 @@ end;
 function TAddInProcess.StopPipe: OleVariant;
 begin
   if Assigned(self.command) and self.command.IsRunning then begin
-    //self.command.Stop;
-    self.command.Free;
-    self.command := nil;
+    FreeAndNil(self.command);
+    //self.command.Free;
+    //self.command := nil;
   end;
 end;
 

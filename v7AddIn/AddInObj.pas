@@ -429,7 +429,10 @@ begin
   ErrInfo^.bstrDescription := MsgText;
   ErrInfo^.wCode := 1006;
   ErrInfo^.scode := E_FAIL;
-  pErrorLog.AddError(nil, ErrInfo^);
+  try
+    pErrorLog.AddError(nil, ErrInfo^);
+  except
+  end;
 end;
 
 procedure TBaseAddIn.LogInfo(MsgText: String);
@@ -442,7 +445,11 @@ begin
   ErrInfo^.bstrDescription := MsgText;
   ErrInfo^.wCode := 1005;
   ErrInfo^.scode := E_UNEXPECTED;
-  pErrorLog.AddError(nil, ErrInfo^);
+  try
+    // when closed 1C, this method raise 000000 error
+    pErrorLog.AddError(nil, ErrInfo^);
+  except
+  end;
 end;
 
 function TBaseAddIn.IsPropReadable(lPropNum: integer;
