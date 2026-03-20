@@ -51,6 +51,10 @@ type
     inputPipeRead, inputPipeWrite: THandle; // stdin pipe handles
     outputPipeRead, outputPipeWrite: THandle; // stdout pipe handles
     errorPipeRead, errorPipeWrite: THandle; // stderr pipe handles
+
+    sa: PSECURITYATTRIBUTES; //security information for pipes
+    sd: PSECURITY_DESCRIPTOR;
+
     procedure FExecute;
     procedure WriteToStdIn();
   protected
@@ -168,8 +172,6 @@ var
   iBufSize: Cardinal;
   app_spawn: PChar;
   si: TStartupInfo;
-  sa: PSECURITYATTRIBUTES; //security information for pipes
-  sd: PSECURITY_DESCRIPTOR;
   pi: TProcessInformation;
   Exit_Code: DWORD; //process exit code
   bread: DWORD; //bytes read
@@ -181,51 +183,6 @@ var
   I: LongWord;
   LineBeginned, created: Boolean;
 begin //FExecute
-
-  GetMem(sa, sizeof(SECURITY_ATTRIBUTES));
-  sd := nil;
-  if (Win32Platform = VER_PLATFORM_WIN32_NT) then
-  begin //initialize security descriptor (Windows NT)
-    GetMem(sd, sizeof(SECURITY_DESCRIPTOR));
-    InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
-    SetSecurityDescriptorDacl(sd, true, nil, false);
-    sa.lpSecurityDescriptor := sd;
-  end
-  else begin
-    sa.lpSecurityDescriptor := nil;
-  end;
-  sa.nLength := sizeof(SECURITY_ATTRIBUTES);
-  sa.bInheritHandle := true; //allow inheritable handles
-
-  // Create stdin pipe
-  if not CreatePipe(inputPipeRead, inputPipeWrite, sa, 0) then
-  begin
-    FreeMem(sd);
-    FreeMem(sa);
-    raise FCreatePipeError.Create('Cannot create stdin pipe');
-  end;
-
-  // Create stdout pipe
-  if not CreatePipe(outputPipeRead, outputPipeWrite, sa, 0) then
-  begin
-    CloseHandle(inputPipeRead);
-    CloseHandle(inputPipeWrite);
-    FreeMem(sd);
-    FreeMem(sa);
-    raise FCreatePipeError.Create('Cannot create stdout pipe');
-  end;
-
-  // Create stderr pipe
-  if not CreatePipe(errorPipeRead, errorPipeWrite, sa, 0) then
-  begin
-    CloseHandle(outputPipeRead);
-    CloseHandle(outputPipeWrite);
-    CloseHandle(inputPipeRead);
-    CloseHandle(inputPipeWrite);
-    FreeMem(sd);
-    FreeMem(sa);
-    raise FCreatePipeError.Create('Cannot create stderr pipe');
-  end;
 
   // START PROCESS
   ZeroMemory(@si, SizeOf(TStartupInfo));
@@ -256,14 +213,6 @@ begin //FExecute
   );
   if not created then
   begin
-    CloseHandle(errorPipeRead);
-    CloseHandle(errorPipeWrite);
-    CloseHandle(outputPipeRead);
-    CloseHandle(outputPipeWrite);
-    CloseHandle(inputPipeRead);
-    CloseHandle(inputPipeWrite);
-    FreeMem(sd);
-    FreeMem(sa);
     raise TCreateProcessError.Create(string(app_spawn) + ' doesn''t exist or cannot be started.');
   end;
 
@@ -277,7 +226,9 @@ begin //FExecute
   try
     repeat //main program loop
       GetExitCodeProcess(pi.hProcess, Exit_Code); //while the process is running
-
+      if (Exit_Code <> STILL_ACTIVE) or Terminated then begin
+        break;
+      end;
       // Read stdout
       PeekNamedPipe(outputPipeRead, nil, 0, @bread, @avail, nil);
       if avail > 0 then
@@ -389,24 +340,16 @@ begin //FExecute
       Sleep(SleepPause); // Give other processes a chance
 
     until (Exit_Code <> STILL_ACTIVE) //process terminated (normally)
-      or ((FMaxTimeAfterBeginning < FTimer.FSinceBeginning) and (FMaxTimeAfterBeginning > 0)) //time out
-      or ((FMaxTimeAfterLastOutput < FTimer.FSinceLastOutput) and (FMaxTimeAfterLastOutput > 0)) //time out
-      or Terminated; //user requested stop
+      and not Terminated
+      and ((FMaxTimeAfterBeginning < FTimer.FSinceBeginning) and (FMaxTimeAfterBeginning > 0)) //time out
+      and ((FMaxTimeAfterLastOutput < FTimer.FSinceLastOutput) and (FMaxTimeAfterLastOutput > 0)) //time out
+      ; //user requested stop
 
     // Terminate process only if still running
     if Exit_Code = STILL_ACTIVE then
       TerminateProcess(pi.hProcess, 0);
   finally
-    FreeMem(sd);
-    FreeMem(sa);
-    CloseHandle(pi.hThread);
-    CloseHandle(pi.hProcess);
-    CloseHandle(inputPipeRead);
-    CloseHandle(inputPipeWrite);
-    CloseHandle(outputPipeRead);
-    CloseHandle(outputPipeWrite);
-    CloseHandle(errorPipeRead);
-    CloseHandle(errorPipeWrite);
+    
   end;
   FTimer.Ending; //turn the timer off
   if Assigned(FOnTerminated) then
@@ -427,27 +370,78 @@ end;
 constructor TDosThread.Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
  One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
 begin
- InitializeCriticalSection(FInputLinesLock);
- FOwner := AOwner;
- FCommandline := Cl;
- InputLines := TStringList.Create;
- InputLines.Clear;
- FInputToOutput := ito;
- FOnNewLine := Onl;
- FOnNewError := One;
- FOnTerminated := Ot;
- FTimer := t;
- FMaxTimeAfterBeginning := mtab;
- FMaxTimeAfterLastOutput := mtalo;
- FPriority := p;
- show_window := _show_window;
- inherited Create(False);
+  InitializeCriticalSection(FInputLinesLock);
+  FOwner := AOwner;
+  FCommandline := Cl;
+  InputLines := TStringList.Create;
+  InputLines.Clear;
+  FInputToOutput := ito;
+  FOnNewLine := Onl;
+  FOnNewError := One;
+  FOnTerminated := Ot;
+  FTimer := t;
+  FMaxTimeAfterBeginning := mtab;
+  FMaxTimeAfterLastOutput := mtalo;
+  FPriority := p;
+  show_window := _show_window;
+
+  GetMem(sa, sizeof(SECURITY_ATTRIBUTES));
+  sd := nil;
+  if (Win32Platform = VER_PLATFORM_WIN32_NT) then
+  begin //initialize security descriptor (Windows NT)
+    GetMem(sd, sizeof(SECURITY_DESCRIPTOR));
+    InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(sd, true, nil, false);
+    sa.lpSecurityDescriptor := sd;
+  end
+  else begin
+    sa.lpSecurityDescriptor := nil;
+  end;
+  sa.nLength := sizeof(SECURITY_ATTRIBUTES);
+  sa.bInheritHandle := true; //allow inheritable handles
+
+  // Create stdin pipe
+  if not CreatePipe(inputPipeRead, inputPipeWrite, sa, 0) then
+  begin
+    raise FCreatePipeError.Create('Cannot create stdin pipe');
+  end;
+
+  // Create stdout pipe
+  if not CreatePipe(outputPipeRead, outputPipeWrite, sa, 0) then
+  begin
+    raise FCreatePipeError.Create('Cannot create stdout pipe');
+  end;
+
+  // Create stderr pipe
+  if not CreatePipe(errorPipeRead, errorPipeWrite, sa, 0) then
+  begin
+    raise FCreatePipeError.Create('Cannot create stderr pipe');
+  end;
+
+  inherited Create(False);
 end;
 
 destructor TDosThread.Destroy;
 begin
- DeleteCriticalSection(FInputLinesLock);
- inherited;
+  if errorPipeRead <> 0 then
+    CloseHandle(errorPipeRead);
+  if errorPipeWrite <> 0 then
+    CloseHandle(errorPipeWrite);
+  if outputPipeRead <> 0 then
+    CloseHandle(outputPipeRead);
+  if outputPipeWrite <> 0 then
+    CloseHandle(outputPipeWrite);
+  if errorPipeRead <> 0 then
+    CloseHandle(errorPipeRead);
+  if inputPipeWrite <> 0 then
+    CloseHandle(inputPipeWrite);
+  if Assigned(sd) then
+    FreeMem(sd);
+  if Assigned(sa) then
+    FreeMem(sa);
+
+  DeleteCriticalSection(FInputLinesLock);
+  inherited;
 end;
 
 //------------------------------------------------------------------------------
@@ -467,12 +461,15 @@ end;
 
 destructor TDosCommand.Destroy;
 begin
- DeleteCriticalSection(FThreadLock);
- if Assigned(FThread) then
-   FreeAndNil(FThread);
- if Assigned(FTimer) then
-   FreeAndNil(FTimer);
- inherited;
+  if Assigned(FThread) then begin
+    self.Stop();
+    //FreeAndNil(FThread);
+  end;
+  if Assigned(FTimer) then begin
+    FreeAndNil(FTimer);
+  end;
+  DeleteCriticalSection(FThreadLock);
+  inherited;
 end;
 
 //------------------------------------------------------------------------------
@@ -508,6 +505,7 @@ begin
       show_window
     );
     FThread := ThreadToCreate;
+    FThread.FreeOnTerminate := true ;
   finally
     LeaveCriticalSection(FThreadLock);
   end;
@@ -524,18 +522,10 @@ begin
     if Assigned(FThread) then
     begin
       FThread.DoTerminate; //terminate the process
-      ThreadToFree := FThread;
-      FThread := nil;
     end
-    else
-      ThreadToFree := nil;
   finally
     LeaveCriticalSection(FThreadLock);
   end;
-  
-  // Free outside lock to avoid deadlock
-  if Assigned(ThreadToFree) then
-    ThreadToFree.Free;
 end;
 
 procedure TDosThread.WriteToStdIn;
@@ -607,12 +597,12 @@ function TDosCommand.GetIsRunning: boolean;
 var
   ThreadRef: TDosThread;
 begin
-  EnterCriticalSection(FThreadLock);
+  //EnterCriticalSection(FThreadLock);
   try
     ThreadRef := FThread;
     Result := Assigned(ThreadRef) and not ThreadRef.Terminated;
   finally
-    LeaveCriticalSection(FThreadLock);
+    //LeaveCriticalSection(FThreadLock);
   end;
 end;
 
