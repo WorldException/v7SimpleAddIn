@@ -430,7 +430,8 @@ begin
   ErrInfo^.wCode := 1006;
   ErrInfo^.scode := E_FAIL;
   try
-    pErrorLog.AddError(nil, ErrInfo^);
+    if Assigned(pErrorLog) then
+        pErrorLog.AddError(nil, ErrInfo^);
   except
   end;
 end;
@@ -446,8 +447,8 @@ begin
   ErrInfo^.wCode := 1005;
   ErrInfo^.scode := E_UNEXPECTED;
   try
-    // when closed 1C, this method raise 000000 error
-    pErrorLog.AddError(nil, ErrInfo^);
+    if Assigned(pErrorLog) then
+        pErrorLog.AddError(nil, ErrInfo^);
   except
   end;
 end;
@@ -469,7 +470,6 @@ begin
     else
       pboolPropWrite := 1;
     IsPropWritable := S_OK;
-
   end;
 end;
 

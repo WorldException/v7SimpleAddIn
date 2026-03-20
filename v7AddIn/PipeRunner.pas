@@ -53,10 +53,16 @@ uses StrUtils, SysUtils;
 
 function TAddInProcess.RunPipe(exepath: OleVariant): OleVariant;
 begin
-  Self.LogInfo('Start process ['+EventSource+':'+EventAction+']');
+  //Self.LogInfo('Start process ['+EventSource+':'+EventAction+']');
   result := 0;
   self.StopPipe();
   try
+
+    if Length(EventSource) = 0 then
+      EventSource := exepath;
+    if Length(EventAction) = 0 then
+      EventAction := 'process';
+
     self.command := TDosCommand.Create(nil);
     self.command.CommandLine := exepath;
     self.command.OnNewLine := self.OnCommanNewLine;
@@ -64,12 +70,9 @@ begin
     self.command.OnTerminated := self.OnCommandTerminate;
     self.command.Priority := 0;
     self.command.show_window := Length(fShowWindow) > 0;
-    self.command.Execute;
     self.command.InputToOutput := false;
-    if Length(EventSource) = 0 then
-      EventSource := exepath;
-    if Length(EventAction) = 0 then
-      EventAction := 'process';
+
+    self.command.Execute;
   except
     on E: Exception do
     begin
@@ -83,10 +86,8 @@ end;
 
 function TAddInProcess.StopPipe: OleVariant;
 begin
-  if Assigned(self.command) and self.command.IsRunning then begin
+  if Assigned(self.command) then begin
     FreeAndNil(self.command);
-    //self.command.Free;
-    //self.command := nil;
   end;
 end;
 
