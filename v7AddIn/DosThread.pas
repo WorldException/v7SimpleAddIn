@@ -423,7 +423,8 @@ begin
       InputLines.Delete(0); //delete the line immediately after reading
       
       oem := CyrillicAnsi(LineToProcess);
-      if not WriteFile(inputPipeWrite, PAnsiChar(oem)^, ByteLength(oem), bytesWritten, nil) then
+      //Length working true
+      if not WriteFile(inputPipeWrite, PAnsiChar(oem)^, Length(oem), bytesWritten, nil) then
       begin
         // Write failed - pipe may be broken
         Break;
