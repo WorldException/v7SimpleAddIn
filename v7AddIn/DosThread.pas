@@ -41,13 +41,18 @@ type
     FTimer: TProcessTimer;
     FMaxTimeAfterBeginning: Integer;
     FMaxTimeAfterLastOutput: Integer;
+
     FOnNewLine: TNewLineEvent;
     FOnNewError: TNewErrorEvent;
     FOnTerminated: TNotifyEvent;
+    FOnStarted: TNotifyEvent;
+
     FCreatePipeError: TCreatePipeError;
     //FCreateProcessError: TCreateProcessError;
     FPriority: Integer;
+
     FInputLinesLock: TRTLCriticalSection; // Lock for InputLines access
+
     inputPipeRead, inputPipeWrite: THandle; // stdin pipe handles
     outputPipeRead, outputPipeWrite: THandle; // stdout pipe handles
     errorPipeRead, errorPipeWrite: THandle; // stderr pipe handles
@@ -67,7 +72,7 @@ type
     show_window: boolean;
     InputLines: TstringList;
     constructor Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
-      One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+      One: TNewErrorEvent; Ot: TNotifyEvent; onStarted: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
     destructor Destroy; override;
   end;
 
@@ -137,7 +142,6 @@ procedure TDosThread.FExecute;
 var
   app_spawn: PChar;
   si: TStartupInfo;
-  Last: string;
   created: Boolean;
 begin //FExecute
 
@@ -173,7 +177,9 @@ begin //FExecute
     raise TCreateProcessError.Create(string(app_spawn) + ' doesn''t exist or cannot be started.');
   end;
 
-  Last := ''; // Buffer to save last output without finished with CRLF
+  if Assigned(FOnStarted) then
+     FOnStarted(self);
+
   try
     repeat //main program loop
       if not CheckProcessAlive() or Terminated then begin
@@ -333,8 +339,12 @@ end;
 
 //------------------------------------------------------------------------------
 
-constructor TDosThread.Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer; Onl: TNewLineEvent;
- One: TNewErrorEvent; Ot: TNotifyEvent; p: Integer; ito, _show_window: Boolean);
+constructor TDosThread.Create(AOwner: TObject; Cl: string; t: TProcessTimer; mtab, mtalo: Integer;
+    Onl: TNewLineEvent;
+    One: TNewErrorEvent;
+    Ot: TNotifyEvent;
+    onStarted: TNotifyEvent;
+    p: Integer; ito, _show_window: Boolean);
 begin
   InitializeCriticalSection(FInputLinesLock);
   FOwner := AOwner;
@@ -345,6 +355,7 @@ begin
   FOnNewLine := Onl;
   FOnNewError := One;
   FOnTerminated := Ot;
+  FOnStarted := onStarted;
   FTimer := t;
   FMaxTimeAfterBeginning := mtab;
   FMaxTimeAfterLastOutput := mtalo;

@@ -83,9 +83,11 @@
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
-        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <DCC_IntegerOverflowCheck>true</DCC_IntegerOverflowCheck>
         <VerInfo_AutoGenVersion>true</VerInfo_AutoGenVersion>
         <VerInfo_DLL>true</VerInfo_DLL>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_ExeOutput>..\bin\release\</DCC_ExeOutput>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>None</Manifest_File>
@@ -97,8 +99,9 @@
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
-        <VerInfo_MinorVer>1</VerInfo_MinorVer>
+        <DCC_RangeChecking>true</DCC_RangeChecking>
         <VerInfo_AutoGenVersion>true</VerInfo_AutoGenVersion>
+        <VerInfo_MinorVer>1</VerInfo_MinorVer>
         <DCC_ExeOutput>..\bin\</DCC_ExeOutput>
         <VerInfo_Debug>true</VerInfo_Debug>
         <VerInfo_Build>4</VerInfo_Build>

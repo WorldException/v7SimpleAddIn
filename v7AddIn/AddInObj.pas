@@ -42,6 +42,7 @@ type
     LContext: TRttiContext;
     procedure InitV7RttiInfo;
     function GetPages(out Pages: TCAGUID): HResult; stdcall;
+    procedure logMessage(MsgText: String; code: Word; scode: HRESULT);
   public
     fEventSource, fEventAction, fEventPrefix: string;
     v7MethodsArray: array of v7Method;
@@ -58,7 +59,9 @@ type
     {Функция для получения ссылки на контекст 1С без зависания при выходе}
     function v7GetAppDisp:OleVariant;
 
+    procedure LogCritical(MsgText: String);
     procedure LogError(MsgText:String);
+    procedure LogWarn(MsgText: String);
     procedure LogInfo(MsgText:String);
     procedure SendEvent(MsgText:String; Sender:String='Process'; Source:String='Message');
 
@@ -419,7 +422,17 @@ begin
   end;
 end;
 
-procedure TBaseAddIn.LogError(MsgText: String);
+// code:
+// 1007 message box
+// 1006 !
+// 1005 i
+// 1004 !!!
+// 1003 !!
+// 1002 !
+// 1001 >
+// 1000 empty
+// < 1000 print (code error = NNN)
+procedure TBaseAddIn.logMessage(MsgText: String; code: Word; scode: HRESULT);
 var
   ErrInfo: PExcepInfo;
 begin
@@ -427,8 +440,8 @@ begin
   New(ErrInfo);
   ErrInfo^.bstrSource := self.ExtensionName;
   ErrInfo^.bstrDescription := MsgText;
-  ErrInfo^.wCode := 1006;
-  ErrInfo^.scode := E_FAIL;
+  ErrInfo^.wCode := code;
+  ErrInfo^.scode := scode;
   try
     if Assigned(pErrorLog) then
         pErrorLog.AddError(nil, ErrInfo^);
@@ -436,21 +449,25 @@ begin
   end;
 end;
 
-procedure TBaseAddIn.LogInfo(MsgText: String);
-var
-  ErrInfo: PExcepInfo;
+procedure TBaseAddIn.LogCritical(MsgText: String);
 begin
-  if Trim(MsgText) = '' then Exit;
-  New(ErrInfo);
-  ErrInfo^.bstrSource := self.ExtensionName;
-  ErrInfo^.bstrDescription := MsgText;
-  ErrInfo^.wCode := 1005;
-  ErrInfo^.scode := E_UNEXPECTED;
-  try
-    if Assigned(pErrorLog) then
-        pErrorLog.AddError(nil, ErrInfo^);
-  except
-  end;
+  self.logMessage(MsgText, 1004, E_FAIL);
+end;
+
+
+procedure TBaseAddIn.LogError(MsgText: String);
+begin
+  self.logMessage(MsgText, 1003, E_FAIL);
+end;
+
+procedure TBaseAddIn.LogWarn(MsgText: String);
+begin
+  self.logMessage(MsgText, 1002, E_FAIL);
+end;
+
+procedure TBaseAddIn.LogInfo(MsgText: String);
+begin
+  self.logMessage(MsgText, 1005, E_FAIL);
 end;
 
 function TBaseAddIn.IsPropReadable(lPropNum: integer;

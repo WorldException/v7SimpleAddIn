@@ -15,14 +15,13 @@ type
     FOnNewLine: TNewLineEvent;
     FOnNewError: TNewErrorEvent;
     FOnTerminated: TNotifyEvent;
+    FOnStarted: TNotifyEvent;
     FThread: TDosThread;
     FTimer: TProcessTimer;
     FMaxTimeAfterBeginning: Integer;
     FMaxTimeAfterLastOutput: Integer;
     FPriority: Integer; //[HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
                         // NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS]
-    FThreadLock: TRTLCriticalSection; // Lock for FThread access
-
     function GetIsRunning: boolean; // MK: 20030613
   protected
   public
@@ -42,6 +41,8 @@ type
     property OnNewError: TNewErrorEvent read FOnNewError write FOnNewError;
       //event for each error line that is received through the pipe
     property OnTerminated: TNotifyEvent read FOnTerminated write FOnTerminated;
+
+    property OnStarted: TNotifyEvent read FOnStarted write FOnStarted;
       //event for the end of the process (normally, time out or by user (DosCommand.Stop;))
     property InputToOutput: Boolean read FInputToOutput write FInputToOutput;
       //check it if you want that the inputs appear also in the outputs
@@ -53,14 +54,11 @@ type
 
 
 implementation
-uses StrUtils;
-
 
 //------------------------------------------------------------------------------
 
 constructor TDosCommand.Create(AOwner: TComponent);
 begin
- InitializeCriticalSection(FThreadLock);
  inherited;
  FOwner := AOwner;
  FCommandLine := '';
@@ -77,16 +75,9 @@ begin
   begin
     FThread.Terminate; //terminate the process
   end;
-  //if Assigned(FThread) then begin
-  //  self.Stop();
-    //if not FThread.Finished then
-    //    Sleep(1000);
-    //FreeAndNil(FThread);
-  //end;
   if Assigned(FTimer) then begin
     FreeAndNil(FTimer);
   end;
-  DeleteCriticalSection(FThreadLock);
   inherited;
 end;
 
@@ -94,36 +85,32 @@ end;
 
 procedure TDosCommand.Execute;
 begin
-  EnterCriticalSection(FThreadLock);
-  try
-    if FCommandLine = '' then  // MK: 20030613
-      raise EDosCommand.Create('No Commandline to execute');
+  if FCommandLine = '' then  // MK: 20030613
+    raise EDosCommand.Create('No Commandline to execute');
 
-    if Assigned(FThread) and FThread.Started then
-      raise EDosCommand.Create('Thread already running');
+  if Assigned(FThread) and FThread.Started then
+    raise EDosCommand.Create('Thread already running');
 
-    if (FTimer = nil) then //create the timer (first call to execute)
-      FTimer := TProcessTimer.Create(FOwner);
-    FTimer.Beginning; //turn the timer on
+  if (FTimer = nil) then //create the timer (first call to execute)
+    FTimer := TProcessTimer.Create(FOwner);
+  FTimer.Beginning; //turn the timer on
 
-    // Create thread outside lock to avoid deadlock
-    FThread := TDosThread.Create(
-      Self,
-      FCommandLine,
-      FTimer,
-      FMaxTimeAfterBeginning,
-      FMaxTimeAfterLastOutput,
-      FOnNewLine,
-      FOnNewError,
-      FOnTerminated,
-      FPriority,
-      FInputToOutput,
-      show_window
-    );
-    FThread.FreeOnTerminate := true ;
-  finally
-    LeaveCriticalSection(FThreadLock);
-  end;
+  // Create thread outside lock to avoid deadlock
+  FThread := TDosThread.Create(
+    Self,
+    FCommandLine,
+    FTimer,
+    FMaxTimeAfterBeginning,
+    FMaxTimeAfterLastOutput,
+    FOnNewLine,
+    FOnNewError,
+    FOnTerminated,
+    FOnStarted,
+    FPriority,
+    FInputToOutput,
+    show_window
+  );
+  FThread.FreeOnTerminate := true ;
 end;
 
 //------------------------------------------------------------------------------

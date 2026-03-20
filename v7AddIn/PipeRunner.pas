@@ -29,6 +29,7 @@ type
     procedure OnCommanNewLine(Sender: TObject; NewLine: string; OutputType: TOutputType);
     procedure OnCommandNewError(Sender: TObject; Message: string);
     procedure OnCommandTerminate(Sender: TObject);
+    procedure OnCommandStarted(Sender: TObject);
 
     [v7Property('ShowWindow,ПоказыватьОкно')]
     property ShowWindow: string read fShowWindow write fShowWindow;
@@ -53,7 +54,6 @@ uses StrUtils, SysUtils;
 
 function TAddInProcess.RunPipe(exepath: OleVariant): OleVariant;
 begin
-  //Self.LogInfo('Start process ['+EventSource+':'+EventAction+']');
   result := 0;
   self.StopPipe();
   try
@@ -68,6 +68,7 @@ begin
     self.command.OnNewLine := self.OnCommanNewLine;
     self.command.OnNewError := self.OnCommandNewError;
     self.command.OnTerminated := self.OnCommandTerminate;
+    self.command.OnStarted := self.OnCommandStarted;
     self.command.Priority := 0;
     self.command.show_window := Length(fShowWindow) > 0;
     self.command.InputToOutput := false;
@@ -118,8 +119,14 @@ end;
 
 procedure TAddInProcess.OnCommandTerminate(Sender: TObject);
 begin
-  LogInfo('Process terminate ['+EventSource+':'+EventAction+']');
+  LogWarn('Process terminate ['+EventSource+':'+EventAction+']');
 end;
+
+procedure TAddInProcess.OnCommandStarted(Sender: TObject);
+begin
+  LogInfo('Process started ['+EventSource+':'+EventAction+']');
+end;
+
 
 function TAddInProcess.WritePipe(msg: OleVariant): OleVariant;
 begin
