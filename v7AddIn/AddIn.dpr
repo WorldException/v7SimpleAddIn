@@ -8,6 +8,7 @@ uses
   AddInLib in 'AddInLib.pas',
   PropPage in 'PropPage.pas' {PropertyPage1: TPropertyPage} {PropertyPage1: CoClass},
   DosCommand in 'DosCommand.pas',
+  DosThread in 'DosThread.pas',
   PipeRunner in 'PipeRunner.pas';
 
 {$E dll}

@@ -1,7 +1,7 @@
 unit PipeRunner;
 
 interface
-uses AddInObj, Classes, DosCommand;
+uses AddInObj, Classes, DosCommand, DosThread;
 const
   AddInName = 'Process';
 
@@ -62,6 +62,7 @@ begin
     self.command.OnNewLine := self.OnCommanNewLine;
     self.command.OnNewError := self.OnCommandNewError;
     self.command.OnTerminated := self.OnCommandTerminate;
+    self.command.Priority := 0;
     self.command.show_window := Length(fShowWindow) > 0;
     self.command.Execute;
     self.command.InputToOutput := false;
@@ -73,7 +74,7 @@ begin
     on E: Exception do
     begin
       LogError('Error creating process: ' + E.Message);
-      Exit;
+      exit;
     end;
   end;
   result := 1;
@@ -83,7 +84,7 @@ end;
 function TAddInProcess.StopPipe: OleVariant;
 begin
   if Assigned(self.command) and self.command.IsRunning then begin
-    self.command.Stop;
+    //self.command.Stop;
     self.command.Free;
     self.command := nil;
   end;
