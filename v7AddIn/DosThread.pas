@@ -59,6 +59,7 @@ type
     procedure FExecute;
     procedure WriteToStdIn();
     function CheckProcessAlive(): boolean;
+    procedure ReadStdIn();
   protected
     procedure Execute; override; //call this to create the process
   public
@@ -193,52 +194,7 @@ begin //FExecute
         break;
       end;
       // Read stdout
-      PeekNamedPipe(outputPipeRead, nil, 0, @bread, @avail, nil);
-      if avail > 0 then
-      begin
-        Str := Last; //take the begin of the line (if exists)
-        repeat
-          FillChar(pBuf, iBufSize, #0); //empty the buffer
-          ReadFile(outputPipeRead, pBuf[0], MaxBufSize, readed, nil); //read the stdout pipe
-          I := 0;
-          while (I < readed) and not Terminated do
-          begin
-            case pBuf[I] of
-              #0: Inc(I);
-              #10:
-                begin
-                  Inc(I);
-                  FTimer.NewOutput; //a new output has been caught
-                  if Assigned(FOnNewLine) then
-                    Synchronize(procedure begin
-                      FOnNewLine(FOwner, Str, otEntireLine);
-                    end);
-                  Str := '';
-                end;
-              #13:
-                begin
-                  Inc(I);
-                  if (I < readed) and (pBuf[I] = #10) then
-                    Inc(I); //skip #10 if follows #13
-                  FTimer.NewOutput; //a new output has been caught
-                  if Assigned(FOnNewLine) then
-                    Synchronize(procedure begin
-                      FOnNewLine(FOwner, Str, otEntireLine);
-                    end);
-                  Str := '';
-                end;
-            else
-              begin
-                Str := Str + string(pBuf[I]); //add a character
-                LineBeginned := True;
-                Inc(I);
-              end;
-            end;
-          end;
-          avail := avail - readed;
-          Last := Str; // no CRLF found in the rest, maybe in the next output
-        until avail <= 0;
-      end;
+      ReadStdIn();
 
       // Read stderr
       PeekNamedPipe(errorPipeRead, nil, 0, @bread, @errorAvail, nil);
@@ -248,6 +204,8 @@ begin //FExecute
           FillChar(errorBuf, iBufSize, #0);
           ReadFile(errorPipeRead, errorBuf[0], MaxBufSize, errorReaded, nil);
           I := 0;
+          if errorReaded = 0 then
+            break;
           while (I < errorReaded) and not Terminated do
           begin
             case errorBuf[I] of
@@ -258,9 +216,7 @@ begin //FExecute
                   if ErrorStr <> '' then
                   begin
                     if Assigned(FOnNewError) then
-                      Synchronize(procedure begin
                         FOnNewError(FOwner, ErrorStr);
-                      end);
                   end;
                   ErrorStr := '';
                 end;
@@ -272,9 +228,7 @@ begin //FExecute
                   if ErrorStr <> '' then
                   begin
                     if Assigned(FOnNewError) then
-                      Synchronize(procedure begin
                         FOnNewError(FOwner, ErrorStr);
-                      end);
                   end;
                   ErrorStr := '';
                 end;
@@ -290,9 +244,7 @@ begin //FExecute
         if ErrorStr <> '' then
         begin
           if Assigned(FOnNewError) then
-            Synchronize(procedure begin
               FOnNewError(FOwner, ErrorStr);
-            end);
         end;
         ErrorStr := '';
       end;
@@ -315,9 +267,71 @@ begin //FExecute
   end;
   FTimer.Ending; //turn the timer off
   if Assigned(FOnTerminated) then
-    Synchronize(procedure begin
       FOnTerminated(FOwner);
-    end);
+end;
+
+procedure TDosThread.ReadStdIn();
+var
+  pBuf: TCharBuffer; // stdout buffer
+  errorBuf: TCharBuffer; // stderr buffer
+  iBufSize: Cardinal;
+  app_spawn: PChar;
+  si: TStartupInfo;
+  bread: DWORD; //bytes read
+  readed: DWORD;
+  errorReaded: DWORD;
+  avail: DWORD; //bytes available in stdout
+  errorAvail: DWORD; //bytes available in stderr
+  Str, Last, ErrorStr: string;
+  I: LongWord;
+begin
+  Last := ''; // Buffer to save last output without finished with CRLF
+  Str := '';
+  iBufSize := MaxBufSize;
+  // Read stdout
+  PeekNamedPipe(outputPipeRead, nil, 0, @bread, @avail, nil);
+  if avail > 0 then
+  begin
+    //Str := Last; //take the begin of the line (if exists)
+    repeat
+      FillChar(pBuf, iBufSize, #0); //empty the buffer
+      ReadFile(outputPipeRead, pBuf[0], MaxBufSize, readed, nil); //read the stdout pipe
+      I := 0;
+      if readed = 0 then
+        break;
+      while (I < readed) and not Terminated do
+      begin
+        case pBuf[I] of
+          #0: Inc(I);
+          #10:
+            begin
+              Inc(I);
+              FTimer.NewOutput; //a new output has been caught
+              if Assigned(FOnNewLine) then
+                FOnNewLine(FOwner, Str, otEntireLine);
+              Str := '';
+            end;
+          #13:
+            begin
+              Inc(I);
+              if (I < readed) and (pBuf[I] = #10) then
+                Inc(I); //skip #10 if follows #13
+              FTimer.NewOutput; //a new output has been caught
+              if Assigned(FOnNewLine) then
+                FOnNewLine(FOwner, Str, otEntireLine);
+              Str := '';
+            end;
+        else
+          begin
+            Str := Str + string(pBuf[I]); //add a character
+            Inc(I);
+          end;
+        end;
+      end;
+      avail := avail - readed;
+      //Last := Str; // no CRLF found in the rest, maybe in the next output
+    until avail <= 0;
+  end;
 end;
 
 //------------------------------------------------------------------------------
@@ -385,17 +399,16 @@ end;
 
 destructor TDosThread.Destroy;
 begin
-  if errorPipeRead <> 0 then begin
+  if errorPipeRead <> 0 then
     CloseHandle(errorPipeRead);
-  end;
   if errorPipeWrite <> 0 then
     CloseHandle(errorPipeWrite);
   if outputPipeRead <> 0 then
     CloseHandle(outputPipeRead);
   if outputPipeWrite <> 0 then
     CloseHandle(outputPipeWrite);
-  if errorPipeRead <> 0 then
-    CloseHandle(errorPipeRead);
+  if inputPipeRead <> 0 then
+    CloseHandle(inputPipeRead);
   if inputPipeWrite <> 0 then
     CloseHandle(inputPipeWrite);
   if Assigned(sd) then
@@ -415,7 +428,7 @@ var
   LineToProcess: string;
 begin
   //send lines in input (if exist)
-  EnterCriticalSection(FInputLinesLock);
+  //EnterCriticalSection(FInputLinesLock);
   try
     while (InputLines.Count > 0) and not Terminated do
     begin
@@ -437,7 +450,7 @@ begin
       end;
     end;
   finally
-    LeaveCriticalSection(FInputLinesLock);
+    //LeaveCriticalSection(FInputLinesLock);
   end;
 end;
 
