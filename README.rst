@@ -77,4 +77,11 @@ v7AddIn
 
 --
 
-Стоянов Евгений <quick.es@gmail.com>
+vscode settings
+```
+{
+    "files.encoding": "cp1251",
+    "git.untrackedChanges": "separate",
+}
+```
+author <quick.es@gmail.com>

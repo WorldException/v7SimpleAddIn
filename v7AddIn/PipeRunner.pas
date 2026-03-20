@@ -1,7 +1,7 @@
 unit PipeRunner;
 
 interface
-uses AddInObj, Classes, DosCommand;
+uses AddInObj, Classes, DosCommand, DosThread;
 const
   AddInName = 'Process';
 
@@ -27,6 +27,9 @@ type
     function WritePipe(msg: OleVariant): OleVariant;
 
     procedure OnCommanNewLine(Sender: TObject; NewLine: string; OutputType: TOutputType);
+    procedure OnCommandNewError(Sender: TObject; Message: string);
+    procedure OnCommandTerminate(Sender: TObject);
+    procedure OnCommandStarted(Sender: TObject);
 
     [v7Property('ShowWindow,ПоказыватьОкно')]
     property ShowWindow: string read fShowWindow write fShowWindow;
@@ -39,7 +42,7 @@ type
 
     [v7Property('EventPrefix,СобытиеПрефикс')]
     property EventPrefix:string read fEventPrefix write fEventPrefix;
-
+    
     procedure after_done; override;
   protected
     function ExtensionName:string; override;
@@ -54,19 +57,29 @@ begin
   result := 0;
   self.StopPipe();
   try
-    self.command := TDosCommand.Create(nil);
-    self.command.CommandLine := exepath;
-    self.command.OnNewLine := self.OnCommanNewLine;
-    self.command.show_window := Length(fShowWindow) > 0;
-    self.command.Execute;
-    self.command.InputToOutput := false;
+
     if Length(EventSource) = 0 then
       EventSource := exepath;
     if Length(EventAction) = 0 then
       EventAction := 'process';
 
-  finally
+    self.command := TDosCommand.Create(nil);
+    self.command.CommandLine := exepath;
+    self.command.OnNewLine := self.OnCommanNewLine;
+    self.command.OnNewError := self.OnCommandNewError;
+    self.command.OnTerminated := self.OnCommandTerminate;
+    self.command.OnStarted := self.OnCommandStarted;
+    self.command.Priority := 0;
+    self.command.show_window := Length(fShowWindow) > 0;
+    self.command.InputToOutput := false;
 
+    self.command.Execute;
+  except
+    on E: Exception do
+    begin
+      LogError('Error creating process: ' + E.Message);
+      exit;
+    end;
   end;
   result := 1;
 end;
@@ -74,10 +87,8 @@ end;
 
 function TAddInProcess.StopPipe: OleVariant;
 begin
-  if Assigned(self.command) and self.command.IsRunning then begin
-    self.command.Stop;
-    self.command.Free;
-    self.command := nil;
+  if Assigned(self.command) then begin
+    FreeAndNil(self.command);
   end;
 end;
 
@@ -98,8 +109,24 @@ begin
     if EventPrefix <> LeftStr(NewLine, Length(EventPrefix)) then
       Exit;
   end;
-  Self.SendEvent(NewLine, EventAction, EventSource);
+    Self.SendEvent(NewLine, EventAction, EventSource);
 end;
+
+procedure TAddInProcess.OnCommandNewError(Sender: TObject; Message: string);
+begin
+  LogError('Process error: ' + Message);
+end;
+
+procedure TAddInProcess.OnCommandTerminate(Sender: TObject);
+begin
+  LogWarn('Process terminate ['+EventSource+':'+EventAction+']');
+end;
+
+procedure TAddInProcess.OnCommandStarted(Sender: TObject);
+begin
+  LogInfo('Process started ['+EventSource+':'+EventAction+']');
+end;
+
 
 function TAddInProcess.WritePipe(msg: OleVariant): OleVariant;
 begin
